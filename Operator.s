@@ -8,82 +8,46 @@ start
 	;r2    ; convolution size			| max pool
 	;r3    ; convolution result size	| max pool result size
 	;r4    ; db's first element address
-	;r5    ; | target data
-	;r6    ; | largest data
-	;r7    ; | 
-	;r8    ; 
+	;r5    ; 			| target data
+	;r6    ; 			| largest data
+	;r7    ; 			| 
+	;r8    ; target store address
 	;r9    ; external loop count
 	;r10   ; internal loop count
 	;r11   ; conv row count
 	;r12   ; conv column count
 
-	
+MainStart
 	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	; 두 수의 곱셈 입니다
-	
-	MOV r0, #5		; 곱셈 당하는 수
-	MOV r1, #-7		; 곱하는 수
-	MOV r5, #31		; 곱셈 시프트 횟수 계산
-	
-FirTest
-	; 첫번째 숫자 음수인지 검사
-	MOV r2, r0;
-	LSR r2, #31;
-	ADD r3, r2, #0;
-	CMP r2, #1;
-	BMI SecTest
-	; 음수이면, 첫번째 숫자를 양수로 변환
-	NEG r0, r0
-	
-SecTest
-	; 두번째 숫자 음수인지 검사
-	MOV r2, r1;
-	LSR r2, #31;
-	ADD r3, r2, #0;
-	CMP r2, #1;
-	BMI MulStart
-	; 음수이면, 두번째 숫자를 양수로 변환
-	NEG r1, r1
-	
-MulStart
-	; 끝 비트만 남겨보고
-	MOV r2, r1
-	LSL r2, r5
-	LSR r2, #31
-	
-	; 0이면 그냥 바로 0을, 1이면 11..1을 
-	CMP r2, #0
-	BEQ Count
-	RSB r6, r5, #31
-	ADD r4, r4, r0, LSL r6
-	; 31-현재 카운트 숫자 만큼을 시프트 해서 r4에 더하기
-	
-	
-Count	; 반복 횟수를 카운트
-	SUB r5, r5, #1
-	CMP r5, #19
-	BEQ ResultProcessing
-	B MulStart
-	
-ResultProcessing
-	CMP r3, #1
-	NEGEQ r4, r4
-	; 여기까지가 두 수의 곱셈입니다
-	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-ST
-		  ;;;;    preprocessing    ;;;;
+	; 레지스터 선언
 	LDR r4, =db;
-
-	;    convolution result size calculate
+	LDR r8, addr0;
+	
+	LDR r5, [r4, #16]
+	LDR r6, [r4, #24]
+	
+	BL myMul
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	
+	
+	
+	
+	
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; 컨볼루션에 필요한 기타 등등의 스펙 로딩
 	LDR r2, [r4];    load convolution size
 	LDR r1, [r4, #4];  load stride size
 	LDR r0, [r4, #12];  load matrix size
 	SUB r0, r0, r2;
 	BL Div
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 	
-          ;;;;    Convolution    ;;;;
+	
+	
+	
+	
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; 컨볼루션
 	LDR r0, [r4, #12];  load matrix size
 ConLoop1		; loop for result row
 
@@ -107,23 +71,28 @@ ConLoop4		; loop for kernel column
 	
 	
 	BPL MaxLoop1
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 
 
-
-
-
-		;;;;    preprocessing    ;;;;
-	;    max pooling result size calculate
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; 맥스풀링에 필요한 기타 등등의 스펙 로딩
 	LDR r2, [r4, #8];  load max pool size
 	LDR r1, [r4, #4];  load stride size
 	LDR r0, [r4, #12];  load matrix size
 	SUB r0, r0, r2;
 	BL Div
-
-          ;;;;    Max Pooling    ;;;;
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	
+	
+	
+	
+	
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; 맥스 풀링
 	LDR r0, [r4, #12];  load matrix size
+	
 MaxLoop1		; loop for result row
 
 
@@ -138,7 +107,6 @@ MaxLoop4		; loop for window column
 
 	
 	
-	
 	BPL MaxLoop4
 	
 	
@@ -149,35 +117,124 @@ MaxLoop4		; loop for window column
 	
 	
 	BPL MaxLoop1
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 
 
 
-
-
-		;;;;    ending    ;;;;
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; 끝!
 	B Ending
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-        ;;;;    function area    ;;;;
+
+
+
+
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; 두 수의 곱셈 입니다
+myMul
+	;스택에 잠시 레지스터를 빼두고
+	LDR sp, addr1
+	STMIA sp!, {r0-r12}
+	
+	;부가 레지스터들의 정보
+	MOV r3, #0		; 음수인 숫자의 갯수를 담는 곳
+	MOV r12, #0		; 더하기 직전 시프트 칸 수 세기
+	MOV r9, #0		; 최종 결과물 담을 곳
+	MOV r7, #31		; 곱셈 시프트 횟수 계산
+	
+FirTest
+	; 첫번째 숫자 음수인지 검사
+	MOV r2, r5;
+	LSR r2, #31;
+	ADD r3, r2, #0;
+	CMP r2, #1;
+	BMI SecTest
+	; 음수이면, 첫번째 숫자를 양수로 변환
+	NEG r5, r5
+	
+SecTest
+	; 두번째 숫자 음수인지 검사
+	MOV r2, r6;
+	LSR r2, #31;
+	ADD r3, r2, #0;
+	CMP r2, #1;
+	BMI MulStart
+	; 음수이면, 두번째 숫자를 양수로 변환
+	NEG r6, r6
+	
+MulStart
+	; 끝 비트만 남겨보고
+	MOV r2, r6
+	LSL r2, r7
+	LSR r2, #31
+	
+	; 0이면 그냥 바로 0을, 1이면 11..1을 
+	CMP r2, #0
+	BEQ Count
+	; 31-현재 카운트 숫자 만큼을 시프트 해서 r4에 더하기
+	RSB r12, r7, #31
+	ADD r9, r9, r5, LSL r12
+	
+Count	; 반복 횟수를 카운트
+	SUB r7, r7, #1
+	CMP r7, #19
+	BEQ ResultProcessing
+	B MulStart
+	
+ResultProcessing
+	CMP r3, #1
+	NEGEQ r9, r9
+	
+	; 메모리에 저장
+	STR r9, [r8]
+	
+	; 레지스터 값을 원상복구 해두고
+	LDR sp, addr1
+	LDMIA sp, {r0-r12}
+	ADD r8, #4;
+	
+	; 점프된 영역으로 돌아갑니다.
+	MOV pc, lr
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	
+	
+	
+    
+	
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; 끝 입니다.
 Ending
 	MOV pc, #0    ;Program end
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+
+
+
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; 결과 행렬의 크기를 구하기 위한 임시 가우스 입니다.
 Div
 	ADD r3, r3, #1
 	SUB r0, r0, r1
 	CMP r0, #0
 	BPL Div
 	MOV pc, lr
-
-        ;;;;    data area    ;;;;    DCD = 4byte = word
-		; 59995000 ~ 60005000
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	
+	
+	
+	
+	
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; data area
+	; DCD = 4byte = word
+	; 59995000 ~ 60005000
 addr0 & &60000000
 
 addr1 & &59995000
-
-
-
 
 db	DCD 3
     DCD 1
@@ -210,5 +267,10 @@ db	DCD 3
     DCD 2_00000000000000000000011110101110; 1966
     DCD 2_11111111111111111111110001100011; -925
     ;99
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+
 
 	END
